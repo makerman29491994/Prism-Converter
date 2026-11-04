@@ -1,6 +1,6 @@
 """Standalone app identity."""
 APP_NAME = 'Prism Converter'
-APP_VERSION = "1.3.10"
+APP_VERSION = "1.3.12"
 
 def show_about(parent):
     from tkinter import messagebox

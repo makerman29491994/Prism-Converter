@@ -55,7 +55,7 @@ class Converter:
         self._header_logo=ImageTk.PhotoImage(logo,master=head)
         head.create_image(47,48,image=self._header_logo)
         head.create_text(100,32,text="Converter",anchor="w",font=("Ink Free",32,"bold"),fill=INK)
-        head.create_text(102,76,text="From your pack to your next animation.",anchor="w",font=("Ink Free",15),fill=MUTED)
+        head.create_text(102,76,text="One small step for models, One giant leap for animators",anchor="w",font=("Ink Free",15),fill=MUTED)
         head.create_line(102,99,180,96,260,100,354,97,fill=ACCENT,width=3,smooth=True)
         paper=tk.Canvas(self.frame,bg=BG,highlightthickness=0);paper.pack(fill="both",expand=True,pady=(6,12))
         card=tk.Frame(paper,bg=CARD,padx=24,pady=20);window=paper.create_window(12,12,window=card,anchor="nw")

@@ -158,9 +158,10 @@ def normalize_model(record, allow_mesh=False):
                      "rotation": vector(bone.get("rotation", [0, 0, 0])), "cubes": [], "poly_mesh":bone.get("poly_mesh")}
             for cube in bone.get("cubes", []):
                 origin = vector(cube["origin"]);size = vector(cube["size"])
+                end = [a+b for a,b in zip(origin,size)]
                 if any(x < 0 for x in size):
-                    raise ValueError("Negative cube dimensions are unsupported.")
-                group["cubes"].append({"from": origin, "to": [a+b for a,b in zip(origin,size)],
+                    warnings.append(f"{bone['name']}: reversed cube bounds were normalized; check texture placement against the source model.")
+                group["cubes"].append({"from": [min(a,b) for a,b in zip(origin,end)], "to": [max(a,b) for a,b in zip(origin,end)],
                     "pivot": cube.get("pivot", group["pivot"]), "rotation": cube.get("rotation", [0,0,0]),
                     "inflate": cube.get("inflate", bone.get("inflate", 0)),
                     "mirror": cube.get("mirror", bone.get("mirror", False)), "uv": cube.get("uv", [0,0])})
@@ -200,7 +201,10 @@ def normalize_model(record, allow_mesh=False):
         uv = cube.get("uv_offset", [0,0])
         if not cube.get("box_uv", data.get("meta",{}).get("box_uv",False)):
             uv = {face:dict(value, bb=True) for face,value in cube.get("faces",{}).items()}
-        group["cubes"].append({"from":cube["from"], "to":cube["to"],
+        start,end=vector(cube["from"]),vector(cube["to"])
+        if any(b<a for a,b in zip(start,end)):
+            warnings.append(f"{cube.get('name','cube')}: reversed cube bounds were normalized; check texture placement against the source model.")
+        group["cubes"].append({"from":[min(a,b) for a,b in zip(start,end)], "to":[max(a,b) for a,b in zip(start,end)],
             "pivot":cube.get("origin",[0,0,0]), "rotation":cube.get("rotation",[0,0,0]),
             "inflate":cube.get("inflate",0), "mirror":cube.get("mirror_uv",False), "uv":uv})
     def walk(items, parent=None):
@@ -235,27 +239,75 @@ def image_data(raw):
         return image.convert("RGBA")
 
 
+def texture_reference_candidates(source, references, model_file):
+    """Resolve portable asset paths without following stale absolute local paths."""
+    actual={p.casefold():p for p in source.textures}
+    for reference in references:
+        if not isinstance(reference,str) or not reference or reference.startswith("data:"):continue
+        ref=reference.replace("\\","/").casefold()
+        if ":" in ref and not re.match(r"^[a-z]:/",ref):
+            namespace,asset=ref.split(":",1)
+            ref=f"assets/{namespace}/textures/{asset.removeprefix('textures/')}"
+        if not ref.endswith(".png"):ref+=".png"
+        relative=(PurePosixPath(model_file).parent/ref).as_posix()
+        # Normalize .. segments for lookup only; no filesystem access occurs here.
+        import posixpath
+        exact={actual[x] for x in (ref,posixpath.normpath(relative)) if x in actual}
+        if exact:return sorted(exact)
+        suffix=[p for p in source.textures if p.casefold().endswith("/"+ref.lstrip("/"))]
+        if suffix:return sorted(suffix)
+        # Saved Blockbench paths often point to another computer. Preserve the
+        # longest matching trailing path before falling back to the basename.
+        pieces=ref.split("/")
+        for length in range(len(pieces)-1,0,-1):
+            tail="/".join(pieces[-length:])
+            found=[p for p in source.textures if p.casefold()==tail or p.casefold().endswith("/"+tail)]
+            if found:return sorted(found)
+    return []
+
+
+def blockbench_texture_candidates(source,item,model_file):
+    return texture_reference_candidates(source,
+        [item.get(key) for key in ("relative_path","path","source","name")],model_file)
+
+
+def texture_name_key(value):
+    value=str(value).replace("\\","/").rsplit("/",1)[-1].casefold()
+    value=re.sub(r"\.(?:json|png|bbmodel)$","",value)
+    value=re.sub(r"^(?:(?:geometry|geo|model)[._ -])+","",value)
+    value=re.sub(r"(?:[._ -](?:geometry|geo|model|texture|diffuse|albedo))+$","",value)
+    return re.sub(r"[\W_]","",value)
+
+
 def match_texture(source,index):
-    """Return a confident association or candidates requiring a human choice."""
+    """Prefer declared references, then complete normalized names; never guess variants."""
     record=source.models[index];data=record["data"]
     if record["kind"]=="bbmodel" and data.get("textures"):
         declared=data["textures"]
         if all(t.get("source","").startswith("data:image/png;base64,") or
-               sum(Path(p).name.casefold()==Path(t.get("name","")).name.casefold() for p in source.textures)==1 for t in declared):
+               len(blockbench_texture_candidates(source,t,record["file"]))==1 for t in declared):
             return {"status":"embedded","texture":None,"candidates":[],"reason":"Blockbench textures"}
+        # An unresolved multi-texture model must not silently use one PNG for all faces.
+        if len(declared)>1:
+            return {"status":"missing","texture":None,"candidates":[],"reason":"Some Blockbench textures are missing or ambiguous; open the whole pack folder."}
     identifier=data.get("description",{}).get("identifier","")
     linked=source.texture_links.get(identifier,set())
     actual={p.casefold():p for p in source.textures}
     candidates=sorted({actual[p.casefold()] for p in linked if p.casefold() in actual})
+    # ZIPs can contain multiple packs sharing the same geometry identifier.
+    parts=record["file"].split("/")
+    model_at=next((i for i,p in enumerate(parts) if p.casefold() in ("models","model")),None)
+    if model_at is not None:
+        pack_prefix="/".join(parts[:model_at]).casefold()
+        scoped=[p for p in candidates if p.casefold().startswith(pack_prefix+"/")] if pack_prefix else candidates
+        if scoped:candidates=scoped
     reason="Resource-pack texture reference"
+    if not candidates and record["kind"]=="bbmodel" and data.get("textures"):
+        candidates=blockbench_texture_candidates(source,data["textures"][0],record["file"])
+        reason="Blockbench texture reference"
     if not candidates:
-        def key(value):
-            value=Path(value).stem.casefold()
-            value=re.sub(r"(?:[._ -](?:geometry|geo|model))+$","",value)
-            return re.sub(r"[\W_]","",value)
-        names={key(record["file"]),key(identifier.removeprefix("geometry."))}
-        # Prefer the complete filename/identifier, never just the last word.
-        candidates=[p for p in source.textures if key(p) in names and key(p)]
+        names={texture_name_key(record["file"]),texture_name_key(identifier),texture_name_key(data.get("name",""))}-{''}
+        candidates=[p for p in source.textures if texture_name_key(p) in names]
         reason="Matching texture name"
     status="matched" if len(candidates)==1 else "ambiguous" if candidates else "missing"
     if status=="ambiguous":reason="Multiple matching textures; choose one manually"
@@ -328,7 +380,7 @@ def load_model_textures(source,index,texture=None,texture_path=None):
             if raw.startswith("data:image/png;base64,"):
                 textures[i]=image_data(base64.b64decode(raw.split(",",1)[1],validate=True))
             else:
-                candidates=[key for key in source.textures if Path(key).name.casefold()==Path(item.get("name","")).name.casefold()]
+                candidates=blockbench_texture_candidates(source,item,record["file"])
                 if len(candidates)==1:textures[i]=image_data(source.read(candidates[0]))
     if not textures:
         raise ValueError("Choose the model's PNG texture. No embedded texture was found.")
