@@ -1,8 +1,21 @@
 # Prism Converter
 
-Standalone Windows app, separated from the combined Prism project. Current version: **1.3.12**. No replay-to-world functionality or resource-pack assets are included.
+One small step for models, One giant leap for animators
+
+Windows app for converting Blockbench and Bedrock models to Mine-imator. Current version: **1.3.12**.
 
 Convert cube-based Blockbench and Bedrock models to named Mine-imator `.mimodel` bundles. Includes textured mouse-orbit preview, automatic texture matching, independent batch exports, fractional cubes and standalone bound models. Polygon meshes are preview-only; existing animation timelines are not transferred. Native Mine-imator rendering still needs direct validation.
+
+## Features
+
+- Export named `.mimodel` bundles with their textures.
+- Preview textured cubes and polygon meshes with mouse rotation.
+- Match textures using resource-pack references, model names and Blockbench texture paths.
+- Export a folder or ZIP of models as separate bundles.
+- Search model lists and view complete source paths.
+- Convert fractional cube sizes and reversed cube bounds.
+
+Polygon meshes are preview-only. Export supports cube geometry; animate the exported parts in Mine-imator.
 
 ## Run from source (Windows)
 
@@ -35,25 +48,9 @@ python -m PyInstaller --noconfirm app.spec
 
 The executable is written to `dist/Prism Converter.exe`. Alternatively, run **Build Windows app** manually from GitHub Actions; it uploads a downloadable build artifact and does not publish a release automatically.
 
-## Repository scope
-
-Only this app's Python modules, its own logo, isolated tests, build files and license notices are tracked. Game installations, private packs, exported models/skins, account data, test output and replay code are excluded.
-
 ## Licensing and public release
 
 This repository is public. No open-source license has been selected for the application's source; public visibility does not grant a license to reuse or redistribute it. Third-party code remains under its own licenses; see [notices](THIRD_PARTY_NOTICES.md). Not an official Minecraft or Mine-imator product.
-
-Version 1.3.8 fixes standalone Windows white fields and unreadable text by selecting the clam ttk theme before creating controls. A hand-drawn About button replaces the native white menu bar, and Windows title bars use the app palette.
-
-## Recent changes
-
-- Model filenames appear first in the dropdown. Browse models provides search, horizontal scrolling and a wrapped full source path for long ZIP entries.
-- Decorative preview shadows are removed.
-- Exported cape files are verified by the shared skin-pack utility.
-
- reversed cube dimensions now normalize to valid bounds for preview/export, with texture-review warnings. New tagline: One small step for models, One giant leap for animators
-
-Texture matching: preserve compound identifiers; resolve Blockbench relative/saved paths for each texture, including ZIP packs; recognize geometry/model and texture/diffuse/albedo naming suffixes. Conflicting candidates still require selection.
 
 ## AI Usage
 Ai was used as the main programmer for this project. I don't really know how to code :( 
