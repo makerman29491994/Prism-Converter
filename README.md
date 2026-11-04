@@ -1,3 +1,5 @@
+<img width="1350" height="1165" alt="Converter-logo" src="https://github.com/user-attachments/assets/f4c867ef-a474-46be-9b6d-a9d37da16e77" />
+
 # Prism Converter
 
 One small step for models, One giant leap for animators
