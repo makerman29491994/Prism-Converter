@@ -10,4 +10,4 @@ File-format interoperability references:
 - Bedrock geometry schema: https://learn.microsoft.com/en-us/minecraft/creator/reference/content/schemasreference/schemas/minecraftschema_geometry_1.19.30
 - Marketplace encoding reference (Skin Studio): https://github.com/FurDra64/McTools.rs (Unlicense). The app encodes the user's own assets; it does not decrypt purchased assets or change account entitlements.
 
-No Minecraft, Marketplace, Hive or Galaxite models/textures are distributed in this repository. Users provide their own input files and must have permission to use or distribute the resulting assets.
+No Minecraft or Marketplace models/textures are distributed in this repository. Users provide their own input files and must have permission to use or distribute the resulting assets.
