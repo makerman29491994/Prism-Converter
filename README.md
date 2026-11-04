@@ -54,3 +54,6 @@ Version 1.3.8 fixes standalone Windows white fields and unreadable text by selec
  reversed cube dimensions now normalize to valid bounds for preview/export, with texture-review warnings. New tagline: One small step for models, One giant leap for animators
 
 Texture matching: preserve compound identifiers; resolve Blockbench relative/saved paths for each texture, including ZIP packs; recognize geometry/model and texture/diffuse/albedo naming suffixes. Conflicting candidates still require selection.
+
+## AI Usage
+Ai was used as the main programmer for this project. I don't really know how to code :( 
