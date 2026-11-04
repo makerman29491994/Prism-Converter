@@ -76,6 +76,8 @@ class Converter:
         style.configure("Converter.TCombobox",fieldbackground=BG,foreground=INK,background="#414141",arrowcolor=ACCENT,padding=7,font=("Ink Free",12))
         style.map("Converter.TCombobox",fieldbackground=[("readonly",BG)],foreground=[("readonly",INK)])
         self.model=ttk.Combobox(card,state="readonly",style="Converter.TCombobox");self.model.grid(row=4,column=0,sticky="ew");self.model.bind("<<ComboboxSelected>>",self.select_model)
+        picker=DirtButton(card,"Browse models…",self.browse_models,145)
+        picker.grid(row=3,column=0,sticky="e",pady=(12,4));self.buttons.append(picker)
         self.label(card,"3. Choose the matching texture",5,pady=(18,6))
         texrow=tk.Frame(card,bg=CARD);texrow.grid(row=6,column=0,sticky="ew");texrow.columnconfigure(0,weight=1)
         self.texture=ttk.Combobox(texrow,state="readonly",style="Converter.TCombobox",width=16);self.texture.grid(row=0,column=0,sticky="ew",padx=(0,10));self.texture.bind("<<ComboboxSelected>>",self.texture_changed)
@@ -158,9 +160,49 @@ class Converter:
     def load(self,path):
         self.status.set("Finding models and textures…")
         self.run(lambda:ModelSource(path),self.loaded)
+    def browse_models(self):
+        if not self.source:return
+        window=tk.Toplevel(self.parent);window.title("Choose a model")
+        window.geometry("900x560");window.minsize(620,400);window.configure(bg=BG)
+        window.transient(self.parent.winfo_toplevel());window.grab_set()
+        theme=getattr(self.parent.winfo_toplevel(),"_prism_theme_window",None)
+        if theme:window.after(100,lambda:theme(window))
+        window.columnconfigure(0,weight=1);window.rowconfigure(1,weight=1)
+        search=tk.StringVar(window)
+        entry=tk.Entry(window,textvariable=search,bg=BG,fg=INK,insertbackground=INK,font=("Ink Free",13))
+        entry.grid(row=0,column=0,columnspan=2,sticky="ew",padx=16,pady=12)
+        listing=tk.Listbox(window,bg=CARD,fg=INK,selectbackground=ACCENT,selectforeground=BG,font=("Ink Free",13),exportselection=False)
+        listing.grid(row=1,column=0,sticky="nsew",padx=(16,0))
+        vertical=ttk.Scrollbar(window,orient="vertical",command=listing.yview);vertical.grid(row=1,column=1,sticky="ns",padx=(0,16))
+        horizontal=ttk.Scrollbar(window,orient="horizontal",command=listing.xview);horizontal.grid(row=2,column=0,sticky="ew",padx=(16,0))
+        listing.configure(yscrollcommand=vertical.set,xscrollcommand=horizontal.set)
+        details=tk.Text(window,height=4,wrap="word",bg=BG,fg=INK,font=("Ink Free",12),relief="flat")
+        details.grid(row=3,column=0,columnspan=2,sticky="ew",padx=16,pady=10)
+        visible=[]
+        def selected(event=None):
+            selection=listing.curselection();details.configure(state="normal");details.delete("1.0","end")
+            if selection:details.insert("1.0",self.source.models[visible[selection[0]]]["label"])
+            details.configure(state="disabled")
+        def refresh(*args):
+            visible[:]=[i for i,m in enumerate(self.source.models) if search.get().casefold() in m["label"].casefold()]
+            listing.delete(0,"end")
+            for i in visible:listing.insert("end",self.model_label(self.source.models[i]))
+            if visible:listing.selection_set(0)
+            selected()
+        def accept(event=None):
+            selection=listing.curselection()
+            if selection:self.model.current(visible[selection[0]]);self.select_model();window.destroy()
+        search.trace_add("write",refresh);listing.bind("<<ListboxSelect>>",selected)
+        listing.bind("<Double-Button-1>",accept);window.bind("<Return>",accept);window.bind("<Escape>",lambda e:window.destroy())
+        DirtButton(window,"Use selected model",accept,210,True).grid(row=4,column=0,columnspan=2,pady=(0,12))
+        refresh();entry.focus_set()
+    @staticmethod
+    def model_label(record):
+        identifier=record["data"].get("description",{}).get("identifier","")
+        return Path(record["file"]).name+(" · "+identifier if identifier else "")+" — "+record["file"]
     def loaded(self,source):
         self.source=source;self.texture_path=None;self.overrides={};self.export_names={};self.path.set(str(source.path))
-        self.model.configure(values=[m["label"] for m in source.models]);self.model.current(0)
+        self.model.configure(values=[self.model_label(m) for m in source.models]);self.model.current(0)
         self.texture.configure(values=["Use embedded Blockbench textures"]+source.textures);self.texture.current(0)
         self.select_model();self.status.set(f"Found {len(source.models)} models and {len(source.textures)} textures. Preview one, or export all."+(f" {len(source.warnings)} files skipped." if source.warnings else ""))
     def select_model(self,event=None):
@@ -179,6 +221,7 @@ class Converter:
             self.set_details(self.details.get("1.0","end").strip()+"\n\nPolygon mesh preview. Cube and polygon parts are shown together. Polygon faces cannot be exported in .mimodel format.")
         self.convert_button.enabled=not self.selection_has_polygons;self.convert_button.draw()
         self.model_description=self.details.get("1.0","end").strip()
+        self.model_description+="\n\nSource: "+record["label"]
         index=self.model.current();match=match_texture(self.source,index)
         self.texture_path=None;self.texture.current(0)
         if index in self.overrides:

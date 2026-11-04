@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
 sys.path.insert(0,str(Path("src").resolve()))
-from PrismConverterPreview import preview_mesh,render_preview,prepare_render_mesh,ground_shadow_bounds
+from PrismConverterPreview import preview_mesh,render_preview,prepare_render_mesh
 from PrismSkinPack import preview_model
 from PrismConverterUI import Converter
 
@@ -13,18 +13,6 @@ atlas.putdata([(rng.randrange(256),rng.randrange(256),rng.randrange(256),rng.cho
 model={"texture_scale":1,"parts":[{"position":[0,0,0],"rotation":[20,30,10],"shapes":[
     {"from":[x,-8,-8],"to":[x+12,8,8],"position":[0,0,0],"rotation":[0,25,0],"uv":[16,16]} for x in (-16,0,16)]}]}
 mesh=preview_mesh(model,atlas)
-# Wide/short and tall silhouettes both sit directly against their shadow.
-import numpy as np
-for left,right,bottom in ((30,270,170),(110,190,320)):
-    silhouette=np.array([[[left,60,0],[right,60,0],[right,bottom,0],[left,bottom,0]]],dtype=float)
-    shadow=ground_shadow_bounds(silhouette,(300,400))
-    assert 2<=shadow[1]-bottom<=5 and shadow[3]>shadow[1]
-    assert abs((shadow[0]+shadow[2])/2-(left+right)/2)<1e-9
-    for pitch in (0,180,225,270,359,-14):
-        assert ground_shadow_bounds(silhouette,(300,400),pitch) is None,"Shadow visible from below"
-    for pitch in (14,90,120,374):
-        assert ground_shadow_bounds(silhouette,(300,400),pitch) is not None
-assert ground_shadow_bounds(np.empty((0,4,3)),(300,400)) is None
 huge=copy.deepcopy(model)
 huge["texture_scale"]=.001
 for part in huge["parts"]:
@@ -41,7 +29,7 @@ for size in ((300,400),(360,470)):
     for yaw in range(0,360,15):
         for pitch in (14,90,225):
             start=time.perf_counter();old=preview_model(None,None,size,yaw,pitch,mesh,background="#252525");before+=time.perf_counter()-start
-            start=time.perf_counter();new=render_preview(mesh,size,yaw,pitch,grounded=False);after+=time.perf_counter()-start
+            start=time.perf_counter();new=render_preview(mesh,size,yaw,pitch);after+=time.perf_counter()-start
             assert old.tobytes()==new.tobytes(),(size,yaw,pitch)
             frames+=1
             # Check all model vertices, not the decorative shadow/background.
@@ -54,7 +42,7 @@ for size in ((300,400),(360,470)):
 # Triangle meshes use average depth for three vertices, including mixed alpha.
 triangle=prepare_render_mesh([(((0,8,0),(8,8,0),(0,24,0)),((0,8,0),(8,8,0),(0,24,0)),(((0,1,2),(230,50,80,128)),))])
 for yaw in (0,45,180):
-    assert render_preview(triangle,(300,400),yaw,14,grounded=False).tobytes()==preview_model(None,None,(300,400),yaw,14,triangle,background="#252525").tobytes()
+    assert render_preview(triangle,(300,400),yaw,14).tobytes()==preview_model(None,None,(300,400),yaw,14,triangle,background="#252525").tobytes()
 root=tk.Tk();root.geometry("1000x900");viewer=Converter(root)
 try:
     root.update();viewer.mesh=mesh

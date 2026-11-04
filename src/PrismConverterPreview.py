@@ -98,19 +98,7 @@ def preview_mesh(model,atlas,fit_model=True):
     return prepare_render_mesh(mesh) if fit_model else tuple(mesh)
 
 
-def ground_shadow_bounds(projected,size,pitch=14):
-    """Keep the contact shadow against the visible model, regardless of shape."""
-    if not len(projected) or math.sin(math.radians(pitch))<=1e-6:return None
-    left=float(projected[...,0].min());right=float(projected[...,0].max())
-    bottom=float(projected[...,1].max());center=(left+right)/2
-    radius=max(5,(right-left)*.44)
-    height=max(5,min(22,(right-left)*.09))
-    gap=max(2,min(5,size[1]*.008))
-    top=min(size[1]-height-2,bottom+gap)
-    return (max(2,center-radius),top,min(size[0]-2,center+radius),top+height)
-
-
-def render_preview(mesh,size,yaw,pitch,grounded=True):
+def render_preview(mesh,size,yaw,pitch):
     import numpy as np
     mesh=prepare_render_mesh(mesh)
     angle=math.radians(yaw);tilt=math.radians(pitch)
@@ -133,8 +121,6 @@ def render_preview(mesh,size,yaw,pitch,grounded=True):
     depth=np.where(mesh.counts[ids]==4,depth+projected[:,3,2],depth)/mesh.counts[ids]
     order=np.argsort(-depth,kind="stable")
     image=Image.new("RGB",size,"#252525");draw=ImageDraw.Draw(image,"RGBA")
-    shadow=ground_shadow_bounds(projected,size,pitch) if grounded else (size[0]*.2,size[1]*.87,size[0]*.8,size[1]*.96)
-    if shadow is not None:draw.ellipse(shadow,fill=(0,0,0,80) if grounded else (5,15,10,80))
     points=projected[order,:,:2].reshape((-1,8)).tolist()
     for polygon,index in zip(points,ids[order].tolist()):draw.polygon(polygon,fill=mesh.colors[index])
     return image

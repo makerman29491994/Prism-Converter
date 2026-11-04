@@ -3,6 +3,7 @@ import runpy,sys,tkinter as tk
 from pathlib import Path
 from tkinter import ttk,messagebox
 sys.path.insert(0,str(Path("src").resolve()))
+from PrismAbout import APP_VERSION
 original_init=tk.Tk.__init__
 def native_start(self,*args,**kwargs):
     original_init(self,*args,**kwargs)
@@ -23,7 +24,7 @@ def check(root):
             assert style.lookup(field.cget("style"),"foreground",state=state)=='#eeeeee'
     about=next(w for w in descendants(root) if getattr(w,"text",None)=="About")
     calls=[];messagebox.showinfo=lambda *args,**kwargs:calls.append(args)
-    about.invoke();assert calls and "1.3.8" in calls[0][1]
+    about.invoke();assert calls and APP_VERSION in calls[0][1]
     for size in ("1000x960","960x920"):
         root.geometry(size);root.update()
         for widget in descendants(root):

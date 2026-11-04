@@ -129,7 +129,6 @@ def preview_model(atlas,geometry,size=(340,400),yaw=30,pitch=None,mesh=None,back
             if (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])<=0:continue
             polygons.append((sum(p[2] for p in quad)/len(quad),[(p[0],p[1]) for p in quad],color))
     image=Image.new("RGB",size,background);draw=ImageDraw.Draw(image,"RGBA")
-    draw.ellipse((size[0]*.2,size[1]*.87,size[0]*.8,size[1]*.96),fill=(5,15,10,80))
     for depth,points,color in sorted(polygons,key=lambda item:item[0],reverse=True):draw.polygon(points,fill=color)
     return image
 
@@ -177,7 +176,7 @@ def export_collection(entries,output,name="My Skin Pack",include_custom=False):
                 definition["cape"]=prefix+"cape.png";files[definition["cape"]]=_png(cape)
             if zombie:definition["animations"]={"move.arms":"animation.player.move.arms.zombie"}
     if enhanced:
-        files["README.txt"]=("This pack has one entry per skin and uses the original body textures.\nCapes are separate PNGs referenced by the cape field. Zombie arms use the built-in move.arms animation override.\nOrdinary Bedrock .mcpack importing may ignore these extra fields. Skin Studio offers direct installation and backed-up replacement of a downloaded Marketplace pack you own.\nIn-game and server compatibility must be tested; zombie arms on Hive remain unverified.\n").encode()
+        files["README.txt"]=("Cape textures are included as separate PNGs referenced by each skin's cape field.\nOpening this .mcpack normally in Minecraft may import the body skin without displaying its cape.\nFor capes on Windows, use Skin Studio > Install skins, with Minecraft closed.\nYou can install the Studio collection or select this saved .mcpack in the direct installer.\nReopen Minecraft and select this pack under Classic Skins / Owned.\nA PNG skin image alone cannot contain a separate native cape.\n").encode()
     files["skins.json"]=json.dumps({"serialize_name":token,"localization_name":token,"skins":skins},indent=2).encode()
     files["texts/en_US.lang"]=("\n".join(language)+"\n").encode()
     files["texts/languages.json"]=b'["en_US"]'
@@ -186,4 +185,10 @@ def export_collection(entries,output,name="My Skin Pack",include_custom=False):
         for path,data in files.items():archive.writestr(path,data)
     with zipfile.ZipFile(output) as archive:
         if archive.testzip() is not None:raise ValueError("The saved skin pack did not pass its file check.")
-    return {"path":str(output),"skins":len(entries),"variants":len(skins),"custom_geometry":False,"enhanced_skins":enhanced,"preview_only":preview_only}
+        saved=json.loads(archive.read("skins.json"))["skins"]
+        cape_skins=sum("cape" in skin for skin in saved)
+        for skin in saved:
+            if "cape" not in skin:continue
+            with Image.open(io.BytesIO(archive.read(skin["cape"]))) as image:
+                if image.format!="PNG" or image.size!=(64,32):raise ValueError("A saved cape texture is missing or has invalid dimensions.")
+    return {"path":str(output),"skins":len(entries),"variants":len(skins),"custom_geometry":False,"enhanced_skins":enhanced,"preview_only":preview_only,"cape_skins":cape_skins}
