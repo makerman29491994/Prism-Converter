@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 import math
+from collections import Counter
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -13,6 +14,7 @@ from PIL import Image,ImageTk
 from PrismConverter import ModelSource, normalize_model, convert_model, build_model, match_texture, batch_convert,validate_export_name
 from PrismConverterPreview import preview_mesh, render_preview
 from PrismPolygonPreview import prepare_source_preview,model_has_polygons
+from PrismConverterSketch import SketchField,field_label,scrollbar_style,combobox_style
 
 BG="#202020";CARD="#2d2d2d";INK="#eeeeee";MUTED="#bdbdbd";EDGE="#858585";ACCENT="#c4c4c4"
 
@@ -32,7 +34,7 @@ class DirtButton(tk.Canvas):
 
 
 class Converter:
-    def __init__(self,parent):
+    def __init__(self,parent,about_command=None):
         self.parent=parent;self.source=None;self.output=None;self.busy=False;self.events=queue.Queue();self.alive=True
         self.texture_path=None
         self.export_names={};self.export_name=tk.StringVar(parent)
@@ -44,8 +46,12 @@ class Converter:
         self.preview_worker=ThreadPoolExecutor(max_workers=1,thread_name_prefix="PrismPreview")
         self.batch_cancel=threading.Event();self.batch_active=False
         parent.configure(background=BG)
-        self.frame=tk.Frame(parent,bg=BG,padx=32,pady=24);self.frame.pack(fill="both",expand=True)
+        self.frame=tk.Frame(parent,bg=BG,padx=32,pady=0);self.frame.pack(fill="both",expand=True,pady=(8,18))
         head=tk.Canvas(self.frame,bg=BG,height=110,highlightthickness=0);head.pack(fill="x")
+        if about_command is not None:
+            about=DirtButton(head,"About",about_command,78);about.configure(height=28)
+            about_window=head.create_window(0,2,window=about,anchor="ne")
+            head.bind("<Configure>",lambda event:head.coords(about_window,event.width-2,2))
         resource_dir=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
         with Image.open(resource_dir/"Converter-logo.png") as source:
             logo=source.convert("RGBA")
@@ -57,12 +63,18 @@ class Converter:
         head.create_text(100,32,text="Converter",anchor="w",font=("Ink Free",32,"bold"),fill=INK)
         head.create_text(102,76,text="One small step for models, One giant leap for animators",anchor="w",font=("Ink Free",15),fill=MUTED)
         head.create_line(102,99,180,96,260,100,354,97,fill=ACCENT,width=3,smooth=True)
+        # A few pencil ticks extend the existing underline without new artwork.
+        for x,y in ((363,96),(371,98),(379,95)):
+            head.create_line(x,y+4,x+4,y-3,fill=EDGE,width=1,capstyle="round")
         paper=tk.Canvas(self.frame,bg=BG,highlightthickness=0);paper.pack(fill="both",expand=True,pady=(6,12))
         card=tk.Frame(paper,bg=CARD,padx=24,pady=20);window=paper.create_window(12,12,window=card,anchor="nw")
         def draw(event=None):
             w,h=paper.winfo_width(),paper.winfo_height()
             paper.itemconfigure(window,width=max(1,w-24),height=max(1,h-24));paper.delete("outline")
             paper.create_polygon(18,5,w*.4,7,w-18,5,w-5,18,w-7,h-20,w-20,h-5,18,h-7,5,h-18,7,18,fill=CARD,outline=EDGE,width=2,smooth=True,tags="outline");paper.tag_lower("outline")
+            for offset in (0,6,12):
+                paper.create_line(w-40+offset,13,w-35+offset,8,fill=EDGE,width=1,capstyle="round",tags="outline")
+                paper.create_line(20+offset,h-11,25+offset,h-16,fill=EDGE,width=1,capstyle="round",tags="outline")
         paper.bind("<Configure>",draw)
         card.columnconfigure(0,weight=5,minsize=405);card.columnconfigure(1,weight=4,minsize=290);card.rowconfigure(7,weight=1)
         self.label(card,"1. Open your model or resource pack",0)
@@ -71,23 +83,27 @@ class Converter:
         for b in self.buttons:b.pack(side="left",padx=(0,10))
         self.path=tk.StringVar(value=".bbmodel · Bedrock geometry JSON · .mcpack · ZIP · pack folder")
         tk.Label(card,textvariable=self.path,bg=CARD,fg=MUTED,font=("Ink Free",12),wraplength=390,anchor="w",justify="left").grid(row=2,column=0,sticky="ew")
-        self.label(card,"2. Choose a model",3,pady=(18,6))
+        self.label(card,"2. Choose a model",3,pady=(18,6),kind="model")
         style=ttk.Style(parent)
-        style.configure("Converter.TCombobox",fieldbackground=BG,foreground=INK,background="#414141",arrowcolor=ACCENT,padding=7,font=("Ink Free",12))
+        style.configure("Converter.TCombobox",fieldbackground=BG,foreground=INK,background=BG,arrowcolor=ACCENT,padding=7,borderwidth=0,bordercolor=BG,lightcolor=BG,darkcolor=BG,font=("Ink Free",12))
         style.map("Converter.TCombobox",fieldbackground=[("readonly",BG)],foreground=[("readonly",INK)])
-        self.model=ttk.Combobox(card,state="readonly",style="Converter.TCombobox");self.model.grid(row=4,column=0,sticky="ew");self.model.bind("<<ComboboxSelected>>",self.select_model)
+        combobox_style(style,parent)
+        model_field=SketchField(card,0);model_field.grid(row=4,column=0,sticky="ew")
+        self.model=ttk.Combobox(model_field,state="readonly",style="Converter.TCombobox",font=("Ink Free",12));model_field.attach(self.model);self.model.bind("<<ComboboxSelected>>",self.select_model)
         picker=DirtButton(card,"Browse models…",self.browse_models,145)
         picker.grid(row=3,column=0,sticky="e",pady=(12,4));self.buttons.append(picker)
-        self.label(card,"3. Choose the matching texture",5,pady=(18,6))
+        self.label(card,"3. Choose the matching texture",5,pady=(18,6),kind="texture")
         texrow=tk.Frame(card,bg=CARD);texrow.grid(row=6,column=0,sticky="ew");texrow.columnconfigure(0,weight=1)
-        self.texture=ttk.Combobox(texrow,state="readonly",style="Converter.TCombobox",width=16);self.texture.grid(row=0,column=0,sticky="ew",padx=(0,10));self.texture.bind("<<ComboboxSelected>>",self.texture_changed)
+        texture_field=SketchField(texrow,1);texture_field.grid(row=0,column=0,sticky="ew",padx=(0,10))
+        self.texture=ttk.Combobox(texture_field,state="readonly",style="Converter.TCombobox",width=16,font=("Ink Free",12));texture_field.attach(self.texture);self.texture.bind("<<ComboboxSelected>>",self.texture_changed)
         for combo in (self.model,self.texture):
             combo.configure(postcommand=lambda c=combo:self.theme_popup(c))
         browse=DirtButton(texrow,"Choose PNG…",self.pick_texture,145);browse.grid(row=0,column=1);self.buttons.append(browse)
         info=tk.Frame(card,bg=CARD);info.grid(row=7,column=0,sticky="nsew",pady=(12,12))
-        tk.Label(info,text="Export name",bg=CARD,fg=INK,font=("Ink Free",14,"bold"),anchor="w").pack(fill="x")
-        self.name_entry=tk.Entry(info,textvariable=self.export_name,bg=BG,fg=INK,insertbackground=INK,selectbackground=ACCENT,selectforeground=BG,font=("Ink Free",13),relief="flat",highlightthickness=1,highlightbackground=EDGE)
-        self.name_entry.pack(fill="x",ipady=5,pady=(4,8))
+        field_label(info,"Export name","name",14).pack(fill="x")
+        name_field=SketchField(info,2,height=40);name_field.pack(fill="x",pady=(4,8))
+        self.name_entry=tk.Entry(name_field,textvariable=self.export_name,bg=BG,fg=INK,insertbackground=INK,selectbackground=ACCENT,selectforeground=BG,font=("Ink Free",13),relief="flat",highlightthickness=0)
+        name_field.attach(self.name_entry)
         self.details=tk.Text(info,height=4,width=30,bg=CARD,fg=MUTED,relief="flat",wrap="word",font=("Ink Free",12),highlightthickness=0,state="disabled")
         self.details.pack(fill="both",expand=True)
         viewer=tk.Frame(card,bg=CARD);viewer.grid(row=0,column=1,rowspan=8,sticky="nsew",padx=(18,0),pady=(0,12));viewer.columnconfigure(0,weight=1);viewer.rowconfigure(1,weight=1)
@@ -109,13 +125,17 @@ class Converter:
         self.set_details("Exports a .mimodel with a PNG texture beside it. Bone/group hierarchy and pivots stay available for animation.\n\nBound and fractional-size cube models can be previewed and exported. Polygon meshes can be previewed only. Existing animations and Java block-model JSON are not converted.")
         parent.bind("<Destroy>",self.destroyed,add="+")
         self.poll_job=parent.after(60,self.poll)
-    def label(self,parent,text,row,pady=0):
-        tk.Label(parent,text=text,bg=CARD,fg=INK,font=("Ink Free",16,"bold"),anchor="w").grid(row=row,column=0,sticky="w",pady=pady)
+    def label(self,parent,text,row,pady=0,kind=None):
+        field_label(parent,text,kind).grid(row=row,column=0,sticky="w",pady=pady)
     def remember_name(self,*args):
         if self.source and self.model.current()>=0:self.export_names[self.model.current()]=self.export_name.get()
     def theme_popup(self,combo):
         popup=combo.tk.call("ttk::combobox::PopdownWindow",str(combo))
         combo.tk.call(str(popup)+".f.l","configure","-background",BG,"-foreground",INK,"-selectbackground",ACCENT,"-selectforeground",BG)
+        scrollbar_style(ttk.Style(combo),combo)
+        bar=str(popup)+".f.sb"
+        if combo.tk.call("winfo","exists",bar) and combo.tk.call("winfo","class",bar)=="TScrollbar":
+            combo.tk.call(bar,"configure","-style","Converter.Vertical.TScrollbar")
     def set_details(self,text):
         self.details.configure(state="normal");self.details.delete("1.0","end");self.details.insert("1.0",text);self.details.configure(state="disabled")
     def run(self,work,done):
@@ -163,39 +183,62 @@ class Converter:
     def browse_models(self):
         if not self.source:return
         window=tk.Toplevel(self.parent);window.title("Choose a model")
-        window.geometry("900x560");window.minsize(620,400);window.configure(bg=BG)
+        window.geometry("900x620");window.minsize(680,480);window.configure(bg=BG)
         window.transient(self.parent.winfo_toplevel());window.grab_set()
         theme=getattr(self.parent.winfo_toplevel(),"_prism_theme_window",None)
         if theme:window.after(100,lambda:theme(window))
-        window.columnconfigure(0,weight=1);window.rowconfigure(1,weight=1)
+        window.columnconfigure(0,weight=1);window.rowconfigure(4,weight=1)
+        tk.Label(window,text="Choose a model",bg=BG,fg=INK,font=("Ink Free",23,"bold"),anchor="w").grid(row=0,column=0,columnspan=2,sticky="ew",padx=22,pady=(18,2))
+        tk.Label(window,text="Search by name, appearance, or any part of the source path.",bg=BG,fg=MUTED,font=("Ink Free",12),anchor="w").grid(row=1,column=0,columnspan=2,sticky="ew",padx=22,pady=(0,12))
         search=tk.StringVar(window)
-        entry=tk.Entry(window,textvariable=search,bg=BG,fg=INK,insertbackground=INK,font=("Ink Free",13))
-        entry.grid(row=0,column=0,columnspan=2,sticky="ew",padx=16,pady=12)
-        listing=tk.Listbox(window,bg=CARD,fg=INK,selectbackground=ACCENT,selectforeground=BG,font=("Ink Free",13),exportselection=False)
-        listing.grid(row=1,column=0,sticky="nsew",padx=(16,0))
-        vertical=ttk.Scrollbar(window,orient="vertical",command=listing.yview);vertical.grid(row=1,column=1,sticky="ns",padx=(0,16))
-        horizontal=ttk.Scrollbar(window,orient="horizontal",command=listing.xview);horizontal.grid(row=2,column=0,sticky="ew",padx=(16,0))
+        searchbar=tk.Frame(window,bg=BG);searchbar.grid(row=2,column=0,columnspan=2,sticky="ew",padx=20)
+        searchbar.columnconfigure(0,weight=1)
+        searchfield=SketchField(searchbar,1,background=BG);searchfield.grid(row=0,column=0,sticky="ew",padx=(0,10))
+        entry=tk.Entry(searchfield,textvariable=search,bg=BG,fg=INK,insertbackground=INK,font=("Ink Free",13),relief="flat",highlightthickness=0)
+        searchfield.attach(entry)
+        count=tk.StringVar(window)
+        tk.Label(window,textvariable=count,bg=BG,fg=MUTED,font=("Ink Free",11),anchor="w").grid(row=3,column=0,columnspan=2,sticky="ew",padx=22,pady=(12,5))
+        listing=tk.Listbox(window,bg=CARD,fg=INK,selectbackground=ACCENT,selectforeground=BG,font=("Ink Free",13),exportselection=False,
+            relief="flat",highlightthickness=1,highlightbackground=EDGE,highlightcolor=ACCENT,activestyle="none",selectborderwidth=0)
+        listing.grid(row=4,column=0,sticky="nsew",padx=(22,0))
+        style=ttk.Style(window)
+        scrollbar_style(style,window)
+        vertical=ttk.Scrollbar(window,orient="vertical",style="Converter.Vertical.TScrollbar",command=listing.yview);vertical.grid(row=4,column=1,sticky="ns",padx=(4,20))
+        horizontal=ttk.Scrollbar(window,orient="horizontal",style="Converter.Horizontal.TScrollbar",command=listing.xview);horizontal.grid(row=5,column=0,sticky="ew",padx=(22,0),pady=(3,0))
         listing.configure(yscrollcommand=vertical.set,xscrollcommand=horizontal.set)
-        details=tk.Text(window,height=4,wrap="word",bg=BG,fg=INK,font=("Ink Free",12),relief="flat")
-        details.grid(row=3,column=0,columnspan=2,sticky="ew",padx=16,pady=10)
         visible=[]
-        def selected(event=None):
-            selection=listing.curselection();details.configure(state="normal");details.delete("1.0","end")
-            if selection:details.insert("1.0",self.source.models[visible[selection[0]]]["label"])
-            details.configure(state="disabled")
+        labels=[self.model_label(record).split(" — ")[0] for record in self.source.models]
+        duplicates={label for label,total in Counter(labels).items() if total>1}
         def refresh(*args):
-            visible[:]=[i for i,m in enumerate(self.source.models) if search.get().casefold() in m["label"].casefold()]
+            old=listing.curselection();previous=visible[old[0]] if old and visible else None
+            terms=search.get().casefold().split()
+            visible[:]=[i for i,m in enumerate(self.source.models) if all(term in m["label"].casefold() for term in terms)]
             listing.delete(0,"end")
-            for i in visible:listing.insert("end",self.model_label(self.source.models[i]))
-            if visible:listing.selection_set(0)
-            selected()
+            for i in visible:
+                label=labels[i]
+                if label in duplicates:label+=" · "+self.source.models[i]["file"]
+                listing.insert("end",label)
+            if visible:
+                chosen=visible.index(previous) if previous in visible else visible.index(self.model.current()) if self.model.current() in visible else 0
+                listing.selection_set(chosen);listing.see(chosen)
+            count.set(f"{len(visible)} of {len(self.source.models)} models")
+            use.enabled=bool(visible);use.draw();listing.xview_moveto(1.0)
         def accept(event=None):
             selection=listing.curselection()
-            if selection:self.model.current(visible[selection[0]]);self.select_model();window.destroy()
-        search.trace_add("write",refresh);listing.bind("<<ListboxSelect>>",selected)
+            if selection and visible:self.model.current(visible[selection[0]]);self.select_model();window.destroy()
+        actions=tk.Frame(window,bg=BG);actions.grid(row=6,column=0,columnspan=2,sticky="ew",padx=20,pady=(12,16))
+        use=DirtButton(actions,"Use selected model",accept,210,True);use.pack(side="right")
+        DirtButton(actions,"Cancel",window.destroy,100).pack(side="right",padx=(0,10))
+        DirtButton(searchbar,"Clear",lambda:search.set(""),85).grid(row=0,column=1)
+        search.trace_add("write",refresh)
         listing.bind("<Double-Button-1>",accept);window.bind("<Return>",accept);window.bind("<Escape>",lambda e:window.destroy())
-        DirtButton(window,"Use selected model",accept,210,True).grid(row=4,column=0,columnspan=2,pady=(0,12))
-        refresh();entry.focus_set()
+        entry.bind("<Down>",lambda e:listing.focus_set())
+        refresh();window.update_idletasks()
+        listing.xview_moveto(1.0)
+        owner=self.parent.winfo_toplevel()
+        x=max(0,min(window.winfo_screenwidth()-900,owner.winfo_rootx()+(owner.winfo_width()-900)//2))
+        y=max(0,min(window.winfo_screenheight()-620,owner.winfo_rooty()+(owner.winfo_height()-620)//2))
+        window.geometry(f"+{x}+{y}");entry.focus_set()
     @staticmethod
     def model_label(record):
         identifier=record["data"].get("description",{}).get("identifier","")

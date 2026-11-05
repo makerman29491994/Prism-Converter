@@ -23,6 +23,8 @@ def check(root):
             assert style.lookup(field.cget("style"),"fieldbackground",state=state)=='#202020'
             assert style.lookup(field.cget("style"),"foreground",state=state)=='#eeeeee'
     about=next(w for w in descendants(root) if getattr(w,"text",None)=="About")
+    assert root._converter.frame.winfo_rooty()-root.winfo_rooty()<=16,'Empty top bar returned'
+    assert about.winfo_rooty()-root.winfo_rooty()<=20,'About should share the compact header'
     calls=[];messagebox.showinfo=lambda *args,**kwargs:calls.append(args)
     about.invoke();assert calls and APP_VERSION in calls[0][1]
     for size in ("1000x960","960x920"):

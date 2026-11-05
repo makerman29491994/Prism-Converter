@@ -36,11 +36,8 @@ def main():
     family="Ink Free" if "Ink Free" in families else "Segoe Print" if "Segoe Print" in families else "TkDefaultFont"
     for name in ("TkDefaultFont","TkTextFont","TkMenuFont","TkCaptionFont","TkSmallCaptionFont"):
         tkfont.nametofont(name,root=root).configure(family=family,size=13)
-    from PrismConverterUI import Converter,DirtButton
-    topbar=tk.Frame(root,background='#202020');topbar.pack(fill="x",padx=24,pady=(4,0))
-    about=DirtButton(topbar,"About",lambda:show_about(root),78)
-    about.configure(height=28);about.pack(side="right")
-    root._converter = app = Converter(root)
+    from PrismConverterUI import Converter
+    root._converter = app = Converter(root,about_command=lambda:show_about(root))
     root.iconphoto(True,app._header_logo)
     root.mainloop()
 

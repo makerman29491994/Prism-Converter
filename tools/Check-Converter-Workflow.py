@@ -21,10 +21,22 @@ with tempfile.TemporaryDirectory(dir="work",prefix="converter-flow-") as tmp:
             "bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-2,0,-2],"size":[4,8,4],"uv":[0,0]}]}]}]}
         (pack/(name+".geo.json")).write_text(json.dumps(geometry))
     root=tk.Tk();root.geometry("1000x900");converter=Converter(root)
+    callback_errors=[];root.report_callback_exception=lambda *error:callback_errors.append(error)
     try:
         converter.load(pack)
         pump(root,lambda:converter.source is not None and converter.mesh is not None)
         assert converter.texture.get()=="robot.png"
+        for combo in (converter.model,converter.texture):
+            x,y=combo.winfo_width()-8,combo.winfo_height()//2
+            assert combo.identify(x,y).endswith('downarrow')
+            combo.event_generate('<ButtonPress-1>',x=x,y=y);combo.event_generate('<ButtonRelease-1>',x=x,y=y);root.update()
+            popup=combo.tk.call('ttk::combobox::PopdownWindow',str(combo))
+            assert combo.tk.call('winfo','ismapped',popup),'Drawn dropdown arrow stopped opening its list'
+            from tkinter import ttk
+            style=ttk.Style(root)
+            for state in (('readonly','pressed'),('readonly','active'),('readonly','focus')):
+                assert style.lookup('Converter.TCombobox','background',state=state)=='#202020','Native button box returned when interacting'
+            combo.tk.call('ttk::combobox::Unpost',str(combo));root.update()
         canvas=converter.canvas;canvas.event_generate("<ButtonPress-1>",x=50,y=50);canvas.event_generate("<B1-Motion>",x=100,y=100)
         assert (converter.yaw,converter.pitch)==(0,44)
         cached=converter.mesh;converter.render();assert converter.mesh is cached
@@ -95,4 +107,5 @@ with tempfile.TemporaryDirectory(dir="work",prefix="converter-flow-") as tmp:
         converter.select_model();pump(root,lambda:converter.mesh is not None)
         assert converter.texture.get()==red_path,'Automatic default overwrote manual color choice'
     finally:root.destroy()
+    assert not callback_errors,callback_errors
 print("Converter workflow passed: background loading/preview, matching, mouse orbit/reset, stale selection handling and separate batch exports.")

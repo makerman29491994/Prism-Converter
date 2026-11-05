@@ -4,9 +4,11 @@
 
 One small step for models, One giant leap for animators
 
-Windows app for converting Blockbench and Bedrock models to Mine-imator. Current version: **1.3.17**.
+Windows app for converting Blockbench and Bedrock models to Mine-imator. Current version: **1.5**.
 
 Convert cube-based Blockbench and Bedrock models to named Mine-imator `.mimodel` bundles. Includes textured mouse-orbit preview, automatic texture matching, independent batch exports, fractional cubes and standalone bound models. Polygon meshes are preview-only; existing animation timelines are not transferred. Native Mine-imator rendering still needs direct validation.
+
+See [what changed in 1.5](CHANGELOG.md) for the complete update since the previous release.
 
 ## Features
 
@@ -15,6 +17,7 @@ Convert cube-based Blockbench and Bedrock models to named Mine-imator `.mimodel`
 - Match textures using resource-pack references, model names and Blockbench texture paths.
 - Export a folder or ZIP of models as separate bundles.
 - Search model lists and view complete source paths.
+- Small pencil doodles, varied sketch field borders and hand-drawn scrollbars retain the grayscale theme. The model browser includes compact results, a result count and Clear/Cancel controls.
 - Convert fractional cube sizes and reversed cube bounds.
 
 Polygon meshes are preview-only. Export supports cube geometry; animate the exported parts in Mine-imator.
