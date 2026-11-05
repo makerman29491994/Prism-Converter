@@ -45,10 +45,13 @@ Tests use generated temporary fixtures. They do not modify a real Minecraft inst
 
 ```powershell
 python -m pip install -r requirements-build.txt
-python -m PyInstaller --noconfirm app.spec
+python -m PyInstaller --noconfirm --clean app.spec
+python tools/verify-packaging.py . "dist/Prism Converter.exe"
 ```
 
 The executable is written to `dist/Prism Converter.exe`. Alternatively, run **Build Windows app** manually from GitHub Actions; it uploads a downloadable build artifact and does not publish a release automatically.
+
+The build excludes NumPy's development test utilities while retaining its numerical runtime and all Pillow image codecs. Packaging verification runs the fixture suite against modules extracted from the executable, with installed third-party packages and application source imports disabled.
 
 ## Licensing and public release
 
