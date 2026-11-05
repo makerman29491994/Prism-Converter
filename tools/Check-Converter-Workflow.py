@@ -1,5 +1,5 @@
 """Run actual background preview/batch workflows through the Converter UI."""
-import json,sys,tempfile,time,tkinter as tk
+import json,sys,tempfile,time,tkinter as tk,zipfile
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
@@ -69,5 +69,30 @@ with tempfile.TemporaryDirectory(dir="work",prefix="converter-flow-") as tmp:
         pump(root,lambda:not converter.busy and converter.source.path==polygon and converter.mesh is not None)
         assert not converter.convert_button.enabled
         assert "Polygon mesh preview" in converter.details.get("1.0","end")
+        # Multiple available colors should still produce a textured preview.
+        colors=base/'colors';colors.mkdir()
+        for name,color in [('red','red'),('blue','blue')]:
+            Image.new('RGBA',(16,16),color).save(colors/('armor_body_'+name+'.png'))
+        colored_geometry=json.loads(json.dumps(geometry))
+        colored_geometry['minecraft:geometry'][0]['description']['identifier']='geometry.demo_armor_body'
+        (colors/'armor_body.geo.json').write_text(json.dumps(colored_geometry))
+        archive=base/'asset-only.zip'
+        with zipfile.ZipFile(archive,'w') as z:
+            for asset in colors.iterdir():
+                folder='models/entity' if asset.suffix=='.json' else 'textures/entity'
+                z.write(asset,f'Example Pack/{folder}/{asset.name}')
+        converter.load(archive)
+        pump(root,lambda:not converter.busy and converter.source.path==archive and converter.mesh is not None)
+        assert converter.texture.get()=='Example Pack/textures/entity/armor_body_blue.png','No deterministic default color selected'
+        assert 'Showing one available texture' in converter.details.get('1.0','end')
+        from PrismConverterPreview import render_preview
+        blue=render_preview(converter.mesh,(200,200),30,14).tobytes()
+        red_path='Example Pack/textures/entity/armor_body_red.png'
+        converter.texture.set(red_path);converter.texture_changed()
+        pump(root,lambda:converter.mesh is not None)
+        red=render_preview(converter.mesh,(200,200),30,14).tobytes()
+        assert red!=blue,'Switching color did not update the textured preview'
+        converter.select_model();pump(root,lambda:converter.mesh is not None)
+        assert converter.texture.get()==red_path,'Automatic default overwrote manual color choice'
     finally:root.destroy()
 print("Converter workflow passed: background loading/preview, matching, mouse orbit/reset, stale selection handling and separate batch exports.")

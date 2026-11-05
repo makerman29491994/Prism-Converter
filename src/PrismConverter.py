@@ -15,6 +15,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 from PIL import Image
+from PrismTextureMatching import pack_prefix,controller_bindings,folder_candidates
 
 
 def json_data(raw):
@@ -33,6 +34,7 @@ class ModelSource:
         self.textures = []
         self.warnings = []
         self.texture_links = {}
+        self.texture_bindings = {}
         self.archive = None
         if self.path.is_file() and zipfile.is_zipfile(self.path):
             with zipfile.ZipFile(self.path) as archive:
@@ -59,6 +61,11 @@ class ModelSource:
                     if ancestor.name.lower() in ("models", "model"):
                         root = ancestor.parent
                         break
+                else:
+                    for ancestor in selected.parents:
+                        if ancestor.name.lower() in ("attachables", "entity"):
+                            root = ancestor.parent
+                            break
             for file in root.rglob("*"):
                 if file.is_file() and file.suffix.lower() in (".json", ".bbmodel", ".png"):
                     self.files[file.relative_to(root).as_posix()] = file
@@ -74,6 +81,7 @@ class ModelSource:
             raise ValueError("No Bedrock cube geometry or Blockbench .bbmodel files were found. Choose a model file or an unpacked/ZIP resource pack.")
 
     def _scan(self, selected, archive=None):
+        descriptions=[];controllers={}
         for name in sorted(self.files):
             if name.lower().endswith(".png"):
                 self.textures.append(name)
@@ -82,20 +90,16 @@ class ModelSource:
                 data = json_data(archive.read(self.files[name]) if archive else self.read(name))
                 if not isinstance(data, dict):
                     continue
+                definitions=data.get("render_controllers",{})
+                if isinstance(definitions,dict):
+                    for key,value in definitions.items():
+                        controllers[(pack_prefix(name).casefold(),key.casefold())]=value
                 for entity_key in ("minecraft:client_entity", "minecraft:attachable"):
-                    description=data.get(entity_key,{}).get("description",{})
-                    geometries=description.get("geometry",{})
-                    textures=description.get("textures",{})
-                    if not isinstance(geometries,dict) or not isinstance(textures,dict):continue
-                    prefix=re.split(r"(?:^|/)(?:entity|attachables)/",name,maxsplit=1)[0].rstrip("/")
-                    if prefix==name:prefix=""
-                    for alias,identifier in geometries.items():
-                        choices=[textures[alias]] if alias in textures else [textures["default"]] if "default" in textures else list(textures.values())
-                        for texture in choices:
-                            if isinstance(texture,str) and isinstance(identifier,str):
-                                asset=texture.replace("\\","/").removesuffix(".png")+".png"
-                                self.texture_links.setdefault(identifier,set()).add(f"{prefix}/{asset}".lstrip("/"))
-                if selected and name != selected:continue
+                    entity=data.get(entity_key,{})
+                    if not isinstance(entity,dict):continue
+                    description=entity.get("description",{})
+                    if isinstance(description,dict) and isinstance(description.get("geometry"),dict) and isinstance(description.get("textures"),dict):
+                        descriptions.append((name,description))
                 if name.lower().endswith(".bbmodel") and "elements" in data:
                     self.models.append({"label": name, "file": name, "kind": "bbmodel", "data": data})
                 elif isinstance(data.get("minecraft:geometry"), list):
@@ -111,6 +115,54 @@ class ModelSource:
                             self.models.append({"label": f"{name} · {key}", "file": name, "kind": "bedrock", "data": geometry})
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 self.warnings.append(f"Skipped {name}: {exc}")
+        for name,description in descriptions:
+            prefix=pack_prefix(name)
+            local={key:value for (scope,key),value in controllers.items() if scope==prefix.casefold()}
+            associations=controller_bindings(description,local)
+            if associations is None:
+                associations=[]
+                textures=description["textures"]
+                for alias,identifier in description["geometry"].items():
+                    choices=[textures[alias]] if alias in textures else [textures["default"]] if "default" in textures else list(textures.values())
+                    associations.append((identifier,choices,'',None))
+            for identifier,choices,variant,issue in associations:
+                if not isinstance(identifier,str):continue
+                paths=set()
+                for texture in choices:
+                    if not isinstance(texture,str):continue
+                    asset=texture.replace("\\","/")
+                    if not asset.casefold().endswith(".png"):asset+=".png"
+                    paths.add(f"{prefix}/{asset}".lstrip("/"))
+                if paths:
+                    self.texture_links.setdefault(identifier,set()).update(paths)
+                    self.texture_bindings.setdefault(identifier,[]).append(dict(file=name,prefix=prefix,textures=paths,variant=variant,issue=issue))
+        # Attachable/client files name material variants even when they share
+        # geometry. Keep those associations intact rather than pooling textures.
+        resolved=[]
+        for record in self.models:
+            identifier=record["data"].get("description",{}).get("identifier","")
+            parts=record["file"].split("/")
+            at=next((i for i,p in enumerate(parts) if p.casefold() in ("models","model")),None)
+            prefix="/".join(parts[:at]) if at is not None else ""
+            bindings=[b for b in self.texture_bindings.get(identifier,[]) if b["prefix"].casefold()==prefix.casefold()]
+            exact=[b for b in bindings if texture_name_key(b["file"])==texture_name_key(record["file"])]
+            if exact:bindings=exact
+            variants={}
+            issues={}
+            for binding in bindings:
+                key=(binding["file"],binding["variant"])
+                variants.setdefault(key,set()).update(binding["textures"])
+                if binding["issue"]:issues[key]=binding["issue"]
+            if record["kind"]=="bedrock" and (len(variants)>1 or any(selected==key[0] for key in variants)):
+                for (filename,variant),textures in sorted(variants.items()):
+                    if selected and selected not in (record["file"],filename):continue
+                    resolved.append(dict(record,file=filename,geometry_file=record["file"],
+                        label=f"{filename} · {identifier}"+(f" · {variant}" if variant else ""),
+                        variant=variant,texture_candidates=textures,texture_issue=issues.get((filename,variant))))
+            elif not selected or record["file"]==selected:
+                if variants:record=dict(record,texture_candidates=set().union(*variants.values()),texture_issue=next(iter(issues.values()),None))
+                resolved.append(record)
+        self.models=resolved
 
     def read(self, name):
         if self.archive:
@@ -241,7 +293,9 @@ def image_data(raw):
 
 def texture_reference_candidates(source, references, model_file):
     """Resolve portable asset paths without following stale absolute local paths."""
-    actual={p.casefold():p for p in source.textures}
+    prefix=pack_prefix(model_file).casefold()
+    pool=[p for p in source.textures if pack_prefix(p).casefold()==prefix]
+    actual={p.casefold():p for p in pool}
     for reference in references:
         if not isinstance(reference,str) or not reference or reference.startswith("data:"):continue
         ref=reference.replace("\\","/").casefold()
@@ -254,14 +308,14 @@ def texture_reference_candidates(source, references, model_file):
         import posixpath
         exact={actual[x] for x in (ref,posixpath.normpath(relative)) if x in actual}
         if exact:return sorted(exact)
-        suffix=[p for p in source.textures if p.casefold().endswith("/"+ref.lstrip("/"))]
+        suffix=[p for p in pool if p.casefold().endswith("/"+ref.lstrip("/"))]
         if suffix:return sorted(suffix)
         # Saved Blockbench paths often point to another computer. Preserve the
         # longest matching trailing path before falling back to the basename.
         pieces=ref.split("/")
         for length in range(len(pieces)-1,0,-1):
             tail="/".join(pieces[-length:])
-            found=[p for p in source.textures if p.casefold()==tail or p.casefold().endswith("/"+tail)]
+            found=[p for p in pool if p.casefold()==tail or p.casefold().endswith("/"+tail)]
             if found:return sorted(found)
     return []
 
@@ -291,7 +345,7 @@ def match_texture(source,index):
         if len(declared)>1:
             return {"status":"missing","texture":None,"candidates":[],"reason":"Some Blockbench textures are missing or ambiguous; open the whole pack folder."}
     identifier=data.get("description",{}).get("identifier","")
-    linked=source.texture_links.get(identifier,set())
+    linked=record.get("texture_candidates",source.texture_links.get(identifier,set()))
     actual={p.casefold():p for p in source.textures}
     candidates=sorted({actual[p.casefold()] for p in linked if p.casefold() in actual})
     # ZIPs can contain multiple packs sharing the same geometry identifier.
@@ -301,14 +355,39 @@ def match_texture(source,index):
         pack_prefix="/".join(parts[:model_at]).casefold()
         scoped=[p for p in candidates if p.casefold().startswith(pack_prefix+"/")] if pack_prefix else candidates
         if scoped:candidates=scoped
+    if record.get("texture_issue"):
+        return {"status":"ambiguous","texture":None,"candidates":candidates,"reason":record["texture_issue"]}
+    if record.get("texture_candidates") and not candidates:
+        return {"status":"missing","texture":None,"candidates":[],"reason":"The pack's declared texture is missing. Open the complete pack or choose a PNG."}
     reason="Resource-pack texture reference"
+    # The complete filename is stronger evidence than a shared geometry name.
+    exact=[p for p in candidates if texture_name_key(p)==texture_name_key(record["file"])]
+    if exact:candidates=exact
     if not candidates and record["kind"]=="bbmodel" and data.get("textures"):
         candidates=blockbench_texture_candidates(source,data["textures"][0],record["file"])
         reason="Blockbench texture reference"
     if not candidates:
-        names={texture_name_key(record["file"]),texture_name_key(identifier),texture_name_key(data.get("name",""))}-{''}
-        candidates=[p for p in source.textures if texture_name_key(p) in names]
+        names=[texture_name_key(record["file"]),texture_name_key(identifier),texture_name_key(data.get("name",""))]
+        for name in filter(None,names):
+            candidates=[p for p in source.textures if texture_name_key(p)==name]
+            if candidates:
+                candidates=folder_candidates(candidates,record.get("geometry_file",record["file"]))
+                break
         reason="Matching texture name"
+        if not candidates:
+            # Asset-only ZIPs often omit client/attachable files and retain
+            # only a shared model plus e.g. armor_blue/armor_red.
+            # Match complete names plus recognized colors, never partial names
+            # or arbitrary numbered variants, and stay inside this pack.
+            colors={"black","white","red","green","blue","yellow","orange","purple","pink","brown",
+                    "cyan","magenta","lime","gray","grey","silver","gold","lightblue","lightgray","lightgrey",
+                    "darkblue","darkgreen","darkred","darkgray","darkgrey"}
+            for name in filter(None,names):
+                keys={name+color for color in colors}|{color+name for color in colors}
+                possible=[p for p in source.textures if texture_name_key(p) in keys]
+                candidates=folder_candidates(possible,record.get("geometry_file",record["file"]))
+                if candidates:break
+            if candidates:reason="Matching color-variant textures"
     status="matched" if len(candidates)==1 else "ambiguous" if candidates else "missing"
     if status=="ambiguous":reason="Multiple matching textures; choose one manually"
     return {"status":status,"texture":candidates[0] if status=="matched" else None,
@@ -339,6 +418,7 @@ def batch_convert(source,output,overrides=None,progress=None,cancel=None,names_o
             entry.update(status="skipped",reason=match["reason"],candidates=match["candidates"])
         else:
             stem=re.sub(r"(?:\.(?:geometry|geo))?$","",Path(record["file"]).stem)
+            if record.get("variant"):stem+="_"+record["variant"]
             identifier=record["data"].get("description",{}).get("identifier","")
             if sum(r["file"]==record["file"] for r in source.models)>1:stem+="_"+identifier.removeprefix("geometry.")
             stem=re.sub(r'[^\w.-]+',"_",stem).strip(". ")[:100] or "Model"
@@ -385,6 +465,22 @@ def load_model_textures(source,index,texture=None,texture_path=None):
     if not textures:
         raise ValueError("Choose the model's PNG texture. No embedded texture was found.")
     if 0 not in textures:textures[0]=next(iter(textures.values()))
+    if record["kind"]=="bedrock":
+        description=record["data"].get("description",{})
+        resolution=vector([description.get("texture_width",64),description.get("texture_height",64)],2)
+        if min(resolution)<=0:raise ValueError("Invalid model texture resolution.")
+        for key,image in list(textures.items()):
+            sx,sy=image.width/resolution[0],image.height/resolution[1]
+            scale=min(sx,sy)
+            # A strip with an integral number of model-sized frames is not
+            # nonuniform HD scaling. Use one intact frame, keeping equal X/Y
+            # density rather than stretching transparency across cube faces.
+            if scale>=1 and abs(scale-round(scale))<1e-6:
+                columns,rows=sx/scale,sy/scale
+                if (columns>1 or rows>1) and all(abs(v-round(v))<1e-6 for v in (columns,rows)):
+                    frame=image.crop((0,0,round(resolution[0]*scale),round(resolution[1]*scale)))
+                    frame.info["prism_texture_frame"]="Texture sheet has multiple model-sized frames; the first frame is used for the static preview and export."
+                    textures[key]=frame
     return textures
 
 
@@ -392,6 +488,7 @@ def build_model(source, index, texture=None, texture_path=None, allow_mesh=False
     record=source.models[index];data=record["data"]
     name,resolution,groups,warnings=normalize_model(record,allow_mesh=allow_mesh)
     textures=load_model_textures(source,index,texture,texture_path)
+    warnings.extend(dict.fromkeys(image.info["prism_texture_frame"] for image in textures.values() if "prism_texture_frame" in image.info))
     resolution=vector(resolution,2)
     if any(x<1 or x>8192 for x in resolution):raise ValueError("Invalid model texture resolution.")
     pixel_scale=max(1,math.ceil(max(max(im.width/resolution[0],im.height/resolution[1]) for im in textures.values())))

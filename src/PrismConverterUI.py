@@ -199,7 +199,7 @@ class Converter:
     @staticmethod
     def model_label(record):
         identifier=record["data"].get("description",{}).get("identifier","")
-        return Path(record["file"]).name+(" · "+identifier if identifier else "")+" — "+record["file"]
+        return Path(record["file"]).name+(" · "+identifier if identifier else "")+(" · "+record["variant"] if record.get("variant") else "")+" — "+record["file"]
     def loaded(self,source):
         self.source=source;self.texture_path=None;self.overrides={};self.export_names={};self.path.set(str(source.path))
         self.model.configure(values=[self.model_label(m) for m in source.models]);self.model.current(0)
@@ -211,6 +211,7 @@ class Converter:
         default=Path(record["file"]).stem
         for suffix in (".geometry",".geo"):
             if default.endswith(suffix):default=default[:-len(suffix)]
+        if record.get("variant"):default+="_"+record["variant"]
         self.export_name.set(self.export_names.get(self.model.current(),default))
         self.selection_has_polygons=model_has_polygons(record)
         try:
@@ -228,9 +229,14 @@ class Converter:
             texture,self.texture_path=self.overrides[index]
             self.texture.set(self.texture_path or texture or "Use embedded Blockbench textures")
         elif match["status"]=="matched":self.texture.set(match["texture"])
+        elif match["status"]=="ambiguous" and match["candidates"]:
+            # A useful preview can show one available appearance even when the
+            # pack cannot tell us which color/state the user wants.
+            self.texture.set(sorted(match["candidates"],key=str.casefold)[0])
+            self.model_description+="\n\nShowing one available texture. Use the texture selector to switch colors or appearances."
         elif match["status"]!="embedded":
             self.texture.set("Choose texture: "+match["status"])
-            self.set_details(self.details.get("1.0","end").strip()+"\n\n"+("Multiple matching textures; choose a PNG." if match["status"]=="ambiguous" else "No matching texture. Choose a PNG or open the pack folder."))
+            self.set_details(self.details.get("1.0","end").strip()+"\n\n"+match["reason"])
         self.request_preview()
     def pick_texture(self):
         path=filedialog.askopenfilename(parent=self.parent,title="Choose the model's texture",filetypes=[("PNG texture","*.png")])

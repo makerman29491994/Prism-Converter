@@ -4,7 +4,7 @@
 
 One small step for models, One giant leap for animators
 
-Windows app for converting Blockbench and Bedrock models to Mine-imator. Current version: **1.3.12**.
+Windows app for converting Blockbench and Bedrock models to Mine-imator. Current version: **1.3.17**.
 
 Convert cube-based Blockbench and Bedrock models to named Mine-imator `.mimodel` bundles. Includes textured mouse-orbit preview, automatic texture matching, independent batch exports, fractional cubes and standalone bound models. Polygon meshes are preview-only; existing animation timelines are not transferred. Native Mine-imator rendering still needs direct validation.
 
@@ -18,6 +18,16 @@ Convert cube-based Blockbench and Bedrock models to named Mine-imator `.mimodel`
 - Convert fractional cube sizes and reversed cube bounds.
 
 Polygon meshes are preview-only. Export supports cube geometry; animate the exported parts in Mine-imator.
+
+## Texture matching and previews
+
+Texture matching follows resource-pack texture references, render-controller aliases and arrays, complete model names, and folder context. Shared geometry retains separate named appearances. Folder and ZIP lookups keep each pack's textures together, including Blockbench references.
+
+When several textures fit a model, the preview selects one automatically. Use the texture selector to switch appearances; manual selections are remembered while the pack is open. Asset-only packs can match recognized color prefixes and suffixes even when texture-linking files are absent.
+
+Horizontal and vertical texture strips use the first model-sized frame for static previews and exports, preserving HD density and rectangular textures. Conversion reports identify inferred frame strips. Missing declared assets still require the complete pack or a manually selected texture.
+
+Supported geometry is Bedrock and Blockbench. Java model JSON, animation playback and full Minecraft material/runtime simulation are not supported. Complex texture layers or game-dependent states may require a manual texture selection for a simplified preview.
 
 ## Run from source (Windows)
 
@@ -55,7 +65,7 @@ The build excludes NumPy's development test utilities while retaining its numeri
 
 ## Licensing and public release
 
-This repository is public. No open-source license has been selected for the application's source; public visibility does not grant a license to reuse or redistribute it. Third-party code remains under its own licenses; see [notices](THIRD_PARTY_NOTICES.md). Not an official Minecraft or Mine-imator product.
+The application source is licensed under the [Apache License 2.0](LICENSE). Third-party dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). User-provided models and textures remain subject to their respective licenses. This is not an official Minecraft or Mine-imator product.
 
 ## AI Usage
-Ai was used as the main programmer for this project. I don't really know how to code :( 
+Ai was used as the main programmer for this project. I don't really know how to code :(
